@@ -20,6 +20,9 @@ library(sf)
 #
 ###################################################################################################
 
+install.packages("blsAPI")
+CPI_test <- rjson::fromJSON(blsAPI::blsAPI("CUUR0000SA0"))
+
 # read in CPI data, series CUUR0000SA0 (used for CPI Inflation calculator)
 CPI <- read_xlsx("raw_data/CPI_CUUR0000SA0.xlsx",range="A12:P23")
 # source: https://data.bls.gov/timeseries/CUUR0000SA0
