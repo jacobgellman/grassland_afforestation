@@ -8,6 +8,7 @@
 rm(list=ls(all=TRUE))
 
 # libraries
+library(maps)
 library(readxl)
 library(sf)
 library(tidyverse)
@@ -17,18 +18,16 @@ library(tidyverse)
 
 ###################################################################################################
 #
-# Import and clean the data
+# Import and clean data
 #
 ###################################################################################################
 
-# read in CPI data, series CUUR0000SA0 (used for CPI Inflation Calculator)
-# series "All items in U.S. city average, all urban consumers, not seasonally adjusted"
+# read in CPI data
 download.file(url="https://download.bls.gov/pub/time.series/cu/cu.data.0.Current",
               destfile="raw_data/CPI.txt")
 CPI <- read_delim(file="raw_data/CPI.txt",
                   delim="\t")
 colnames(CPI) <- c("series_id","year","period","value","footnote_codes")
-
 CPI <- CPI %>%
   mutate(series_id = str_replace_all(series_id," ","")) %>%
   dplyr::filter(series_id=="CUUR0000SA0" &  # the desired series
@@ -36,6 +35,8 @@ CPI <- CPI %>%
                   year <= 2007 &
                   period == "M13") %>%  # M13: the annual average inflation
   mutate(value=as.numeric(value))
+# source: https://www.bls.gov/cpi/data.htm
+# series CUUR0000SA0, "All items in U.S. city average, all urban consumers, not seasonally adjusted"
   
 # read in forest conversion data (Nielsen et al. 2013)
 download.file(url="http://www.fs.fed.us/pnw/pubs/pnw_gtr888/county-level-data_nielsen2013.xlsx",
@@ -49,7 +50,7 @@ colnames(forest_conversion) <- c("FIPS","county",
                "tree_establishment_CRP","tree_establishment_CRP_predicted",
                "C_uptake_wo_harvest", "C_uptake_w_harvest",
                "land_eligible_conversion_crop","land_eligible_conversion_pasture","land_eligible_conversion_range")
-# those column names correspond to the Nielsen et al. column names.
+# those column names correspond to the Nielsen et al. column names
 # source: http://www.fs.fed.us/pnw/pubs/pnw_gtr888/county-level-data_nielsen2013.xlsx
 
 # adjust from 1997 dollars to 2007 dollars
@@ -159,22 +160,35 @@ forest_conversion <- forest_conversion %>%
 #
 ###################################################################################################
 
-download.file(url="https://www2.census.gov/geo/tiger/TIGER2018/COUNTY/tl_2018_us_county.zip",
-              destfile="raw_data/tl_2018_us_county.zip")
-unzip("raw_data/tl_2018_us_county.zip",exdir="raw_data/tl_2018_us_county")
+# download county data
+download.file(url="https://www2.census.gov/geo/tiger/GENZ2014/shp/cb_2014_us_county_20m.zip",
+              destfile="raw_data/cb_2014_us_county_20m.zip")
+unzip("raw_data/cb_2014_us_county_20m.zip",exdir="raw_data/cb_2014_us_county_20m")
+# source: https://www.census.gov/geographies/mapping-files.html
 
-# creating a list of counties in Alaska and Hawaii to filter out of shape file
-AKHI_fips = c('02013',	'02016',	'02020',	'02050',	'02060',	'02068',	
-              '02070',	'02090',	'02100',	'02105',	'02110',	'02122',	
-              '02130',	'02150',	'02164',	'02170',	'02180',	'02185',	
-              '02188',	'02195',	'02198',	'02220',	'02230',	'02240',	
-              '02261',	'02270',	'02275',	'02282',	'02290',	'15001',	
-              '15003',	'15005',	'15007',	'15009')
+# read in county shapefile
+county_shp <- st_read("raw_data/cb_2014_us_county_20m/cb_2014_us_county_20m.shp",quiet=T)
+county_shp <- st_transform(county_shp,crs=2163)
 
-counties <- st_read("raw_data/tl_2018_us_county/tl_2018_us_county.shp", quiet=TRUE) %>%
-  arrange(GEOID) %>%
-  filter(GEOID %ni% AKHI_fips)
-# source: https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.2018.html
+# filter for counties in the Nielsen et al. dataset
+county_shp <- county_shp %>%
+  mutate(county_fips=as.numeric(paste0(STATEFP,COUNTYFP))) %>%
+  dplyr::filter(county_fips %in% forest_conversion$FIPS)
 
-counties %>%
-  filter(GEOID %ni% forest_conversion$FIPS)
+# generate map
+county_map <- ggplot(forest_conversion) +
+  geom_sf(data=county_shp,fill="white", color="#7f7f7f") +
+  theme_bw() +
+  theme(plot.background = element_rect(fill = "transparent",color = NA),
+        panel.border = element_blank(),
+        panel.background =element_rect(fill = "transparent",color = NA),
+        panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position="right")
+county_map
+
+
+
+
+
