@@ -4,12 +4,13 @@
 # "Payments for carbon can lead to unwanted costs from afforestation in the U.S. Great Plains."
 ###################################################################################################
 
-# install.packages(c("sf", "lwgeom", "maps", "mapdata", "spData", "tigris", "tidycensus", "leaflet", "tmap", "tmaptools"))
+# install.packages(c("readxl","sf","tidyverse"))
+rm(list=ls(all=TRUE))
 
 # libraries
-library(tidyverse)
 library(readxl)
 library(sf)
+library(tidyverse)
 
 # "not in" function
 `%ni%` <- Negate(`%in%`)
@@ -20,19 +21,27 @@ library(sf)
 #
 ###################################################################################################
 
-install.packages("blsAPI")
-CPI_test <- rjson::fromJSON(blsAPI::blsAPI("CUUR0000SA0"))
+# read in CPI data, series CUUR0000SA0 (used for CPI Inflation Calculator)
+# series "All items in U.S. city average, all urban consumers, not seasonally adjusted"
+download.file(url="https://download.bls.gov/pub/time.series/cu/cu.data.0.Current",
+              destfile="raw_data/CPI.txt")
+CPI <- read_delim(file="raw_data/CPI.txt",
+                  delim="\t")
+colnames(CPI) <- c("series_id","year","period","value","footnote_codes")
 
-# read in CPI data, series CUUR0000SA0 (used for CPI Inflation calculator)
-CPI <- read_xlsx("raw_data/CPI_CUUR0000SA0.xlsx",range="A12:P23")
-# source: https://data.bls.gov/timeseries/CUUR0000SA0
-
-# inflation from 1997-2007
-inflation_97_07 <- (CPI$Annual[length(CPI$Annual)] - CPI$Annual[1])/CPI$Annual[1]
-
+CPI <- CPI %>%
+  mutate(series_id = str_replace_all(series_id," ","")) %>%
+  dplyr::filter(series_id=="CUUR0000SA0" &  # the desired series
+                  year >= 1997 &
+                  year <= 2007 &
+                  period == "M13") %>%  # M13: the annual average inflation
+  mutate(value=as.numeric(value))
+  
 # read in forest conversion data (Nielsen et al. 2013)
 download.file(url="http://www.fs.fed.us/pnw/pubs/pnw_gtr888/county-level-data_nielsen2013.xlsx",
-              destfile = "raw_data/county-level-data_nielsen2013.xlsx")
+              destfile = "raw_data/county-level-data_nielsen2013.xlsx",
+              mode="wb")
+
 forest_conversion <- read_xlsx("raw_data/county-level-data_nielsen2013.xlsx",range="A11:O3080")
 colnames(forest_conversion) <- c("FIPS","county",
                "land_price_wo_harvest_crop", "land_price_wo_harvest_pasture", "land_price_wo_harvest_range",
@@ -44,6 +53,7 @@ colnames(forest_conversion) <- c("FIPS","county",
 # source: http://www.fs.fed.us/pnw/pubs/pnw_gtr888/county-level-data_nielsen2013.xlsx
 
 # adjust from 1997 dollars to 2007 dollars
+inflation_97_07 <- (CPI$value[11] - CPI$value[1])/CPI$value[1]  # inflation 1997-2007
 forest_conversion_inflated <- forest_conversion  # a temporary df for inflation calculations
 for (i in 3:10) {
   forest_conversion_inflated[,i] <- forest_conversion[,i]*(1+inflation_97_07)  # inflation calculation
@@ -55,29 +65,47 @@ forest_conversion <- left_join(
   forest_conversion_inflated
   ) %>%
   select(FIPS:land_eligible_conversion_range,
-         land_price_wo_harvest_crop_inflated:tree_establishment_CRP_predicted_inflated)  # joining the inflated values
+         land_price_wo_harvest_crop_inflated:tree_establishment_CRP_predicted_inflated)  # join inflated values
 rm(forest_conversion_inflated)  # removing the temporary inflated df
+
+###################################################################################################
+#
+# Analysis
+#
+###################################################################################################
 
 # calculate opportunity cost
 forest_conversion <- forest_conversion %>%
   mutate(
-    opp_cost_wo_harvest_crop = sum(land_price_wo_harvest_crop_inflated, tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_wo_harvest_pasture = sum(land_price_wo_harvest_pasture_inflated, tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_wo_harvest_range = sum(land_price_wo_harvest_range_inflated, tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_w_harvest_crop = sum(land_price_w_harvest_crop_inflated, tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_w_harvest_pasture = sum(land_price_w_harvest_pasture_inflated, tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_w_harvest_range = sum(land_price_w_harvest_range_inflated, tree_establishment_CRP_predicted_inflated, na.rm=TRUE)
+    opp_cost_wo_harvest_crop = sum(land_price_wo_harvest_crop_inflated, 
+                                   tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
+    opp_cost_wo_harvest_pasture = sum(land_price_wo_harvest_pasture_inflated, 
+                                      tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
+    opp_cost_wo_harvest_range = sum(land_price_wo_harvest_range_inflated, 
+                                    tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
+    opp_cost_w_harvest_crop = sum(land_price_w_harvest_crop_inflated, 
+                                  tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
+    opp_cost_w_harvest_pasture = sum(land_price_w_harvest_pasture_inflated, 
+                                     tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
+    opp_cost_w_harvest_range = sum(land_price_w_harvest_range_inflated, 
+                                   tree_establishment_CRP_predicted_inflated, na.rm=TRUE)
     )
 
 # calculate MC = opp_cost/MT of C
 forest_conversion <- forest_conversion %>%
   mutate(
-    mc_wo_harvest_crop = ifelse(is.finite(opp_cost_wo_harvest_crop/C_uptake_wo_harvest),opp_cost_wo_harvest_crop/C_uptake_wo_harvest,NA),
-    mc_wo_harvest_pasture = ifelse(is.finite(opp_cost_wo_harvest_pasture/C_uptake_wo_harvest),opp_cost_wo_harvest_pasture/C_uptake_wo_harvest,NA),
-    mc_wo_harvest_range = ifelse(is.finite(opp_cost_wo_harvest_range/C_uptake_wo_harvest),opp_cost_wo_harvest_range/C_uptake_wo_harvest,NA),
-    mc_w_harvest_crop = ifelse(is.finite(opp_cost_w_harvest_crop/C_uptake_w_harvest),opp_cost_w_harvest_crop/C_uptake_w_harvest,NA),
-    mc_w_harvest_pasture = ifelse(is.finite(opp_cost_w_harvest_pasture/C_uptake_w_harvest),opp_cost_w_harvest_pasture/C_uptake_w_harvest,NA),
-    mc_w_harvest_range = ifelse(is.finite(opp_cost_w_harvest_range/C_uptake_w_harvest),opp_cost_w_harvest_range/C_uptake_w_harvest,NA)
+    mc_wo_harvest_crop = ifelse(is.finite(opp_cost_wo_harvest_crop/C_uptake_wo_harvest),
+                                opp_cost_wo_harvest_crop/C_uptake_wo_harvest,NA),
+    mc_wo_harvest_pasture = ifelse(is.finite(opp_cost_wo_harvest_pasture/C_uptake_wo_harvest),
+                                   opp_cost_wo_harvest_pasture/C_uptake_wo_harvest,NA),
+    mc_wo_harvest_range = ifelse(is.finite(opp_cost_wo_harvest_range/C_uptake_wo_harvest),
+                                 opp_cost_wo_harvest_range/C_uptake_wo_harvest,NA),
+    mc_w_harvest_crop = ifelse(is.finite(opp_cost_w_harvest_crop/C_uptake_w_harvest),
+                               opp_cost_w_harvest_crop/C_uptake_w_harvest,NA),
+    mc_w_harvest_pasture = ifelse(is.finite(opp_cost_w_harvest_pasture/C_uptake_w_harvest),
+                                  opp_cost_w_harvest_pasture/C_uptake_w_harvest,NA),
+    mc_w_harvest_range = ifelse(is.finite(opp_cost_w_harvest_range/C_uptake_w_harvest),
+                                opp_cost_w_harvest_range/C_uptake_w_harvest,NA)
     )
 
 # afforested acres under a $12/t carbon price
