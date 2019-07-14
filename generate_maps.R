@@ -4,14 +4,12 @@
 # "Payments for carbon can lead to unwanted costs from afforestation in the U.S. Great Plains."
 ###################################################################################################
 
-# install.packages(c("readxl","sf","tidyverse"))
-rm(list=ls(all=TRUE))
+# load or install necessary libraries. pacman is a library to elegantly check for missing packages.
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(maps,readxl,sf,tidyverse)
 
-# libraries
-library(maps)
-library(readxl)
-library(sf)
-library(tidyverse)
+# clear environment
+rm(list=ls(all=TRUE))
 
 # "not in" function
 `%ni%` <- Negate(`%in%`)
@@ -78,18 +76,18 @@ rm(forest_conversion_inflated)  # removing the temporary inflated df
 # calculate opportunity cost
 forest_conversion <- forest_conversion %>%
   mutate(
-    opp_cost_wo_harvest_crop = sum(land_price_wo_harvest_crop_inflated, 
-                                   tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_wo_harvest_pasture = sum(land_price_wo_harvest_pasture_inflated, 
-                                      tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_wo_harvest_range = sum(land_price_wo_harvest_range_inflated, 
-                                    tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_w_harvest_crop = sum(land_price_w_harvest_crop_inflated, 
-                                  tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_w_harvest_pasture = sum(land_price_w_harvest_pasture_inflated, 
-                                     tree_establishment_CRP_predicted_inflated, na.rm=TRUE),
-    opp_cost_w_harvest_range = sum(land_price_w_harvest_range_inflated, 
-                                   tree_establishment_CRP_predicted_inflated, na.rm=TRUE)
+    opp_cost_wo_harvest_crop = rowSums(cbind(land_price_wo_harvest_crop_inflated, 
+                                   tree_establishment_CRP_predicted_inflated), na.rm=TRUE),
+    opp_cost_wo_harvest_pasture = rowSums(cbind(land_price_wo_harvest_pasture_inflated, 
+                                      tree_establishment_CRP_predicted_inflated), na.rm=TRUE),
+    opp_cost_wo_harvest_range = rowSums(cbind(land_price_wo_harvest_range_inflated, 
+                                    tree_establishment_CRP_predicted_inflated), na.rm=TRUE),
+    opp_cost_w_harvest_crop = rowSums(cbind(land_price_w_harvest_crop_inflated, 
+                                  tree_establishment_CRP_predicted_inflated), na.rm=TRUE),
+    opp_cost_w_harvest_pasture = rowSums(cbind(land_price_w_harvest_pasture_inflated, 
+                                     tree_establishment_CRP_predicted_inflated), na.rm=TRUE),
+    opp_cost_w_harvest_range = rowSums(cbind(land_price_w_harvest_range_inflated, 
+                                   tree_establishment_CRP_predicted_inflated), na.rm=TRUE)
     )
 
 # calculate MC = opp_cost/MT of C
@@ -121,7 +119,7 @@ forest_conversion <- forest_conversion %>%
     range_acres_12 = ifelse(is.na(mc_wo_harvest_range),NA,
                             ifelse(mc_wo_harvest_range > 12, 0,
                                    land_eligible_conversion_range)),
-    total_acres_12 = sum(crop_acres_12,pasture_acres_12,range_acres_12,na.rm=TRUE)
+    total_acres_12 = rowSums(cbind(crop_acres_12,pasture_acres_12,range_acres_12),na.rm=TRUE)
   )
 
 # afforested acres under a $20/t carbon price
@@ -136,7 +134,7 @@ forest_conversion <- forest_conversion %>%
     range_acres_20 = ifelse(is.na(mc_wo_harvest_range),NA,
                             ifelse(mc_wo_harvest_range > 20, 0,
                                    land_eligible_conversion_range)),
-    total_acres_20 = sum(crop_acres_20,pasture_acres_20,range_acres_20,na.rm=TRUE)
+    total_acres_20 = rowSums(cbind(crop_acres_20,pasture_acres_20,range_acres_20),na.rm=TRUE)
   )
 
 # afforested acres under a $50/t carbon price
@@ -151,7 +149,7 @@ forest_conversion <- forest_conversion %>%
     range_acres_50 = ifelse(is.na(mc_wo_harvest_range),NA,
                             ifelse(mc_wo_harvest_range > 50, 0,
                                    land_eligible_conversion_range)),
-    total_acres_50 = sum(crop_acres_50,pasture_acres_50,range_acres_50,na.rm=TRUE)
+    total_acres_50 = rowSums(cbind(crop_acres_50,pasture_acres_50,range_acres_50),na.rm=TRUE)
   )
 
 ###################################################################################################
@@ -160,7 +158,7 @@ forest_conversion <- forest_conversion %>%
 #
 ###################################################################################################
 
-# download county data
+# download county shapefile data
 download.file(url="https://www2.census.gov/geo/tiger/GENZ2014/shp/cb_2014_us_county_20m.zip",
               destfile="raw_data/cb_2014_us_county_20m.zip")
 unzip("raw_data/cb_2014_us_county_20m.zip",exdir="raw_data/cb_2014_us_county_20m")
@@ -168,17 +166,57 @@ unzip("raw_data/cb_2014_us_county_20m.zip",exdir="raw_data/cb_2014_us_county_20m
 
 # read in county shapefile
 county_shp <- st_read("raw_data/cb_2014_us_county_20m/cb_2014_us_county_20m.shp",quiet=T)
-county_shp <- st_transform(county_shp,crs=2163)
+county_shp <- st_transform(county_shp,crs=102003)
 
 # filter for counties in the Nielsen et al. dataset
 county_shp <- county_shp %>%
-  mutate(county_fips=as.numeric(paste0(STATEFP,COUNTYFP))) %>%
-  dplyr::filter(county_fips %in% forest_conversion$FIPS)
+  mutate(FIPS=as.numeric(paste0(STATEFP,COUNTYFP))) %>%
+  dplyr::filter(FIPS %in% forest_conversion$FIPS) 
 
-# generate map
-county_map <- ggplot(forest_conversion) +
-  geom_sf(data=county_shp,fill="white", color="#7f7f7f") +
+# join the forest_conversion df to the county sf object
+county_shp <- 
+  left_join(
+    county_shp,
+    forest_conversion,
+    by="FIPS"
+  )
+
+# generate manual breaks to use for colored fill in map
+county_shp$brks_range_12 <- cut(county_shp$range_acres_12,
+                                       breaks=c(-1, 50000, 100000, 200000, 400000, 600000, 1600000),
+                                       labels=c("0 - 50", "51 - 100", "101 - 200",
+                                                "201 - 400", "401 - 600", "601 - 1600"))
+county_shp$brks_total_12 <- cut(county_shp$total_acres_12,
+                                       breaks=c(-1, 50000, 100000, 200000, 400000, 600000, 1600000),
+                                       labels=c("0 - 50", "51 - 100", "101 - 200", 
+                                                "201 - 400", "401 - 600", "601 - 1600"))
+county_shp$brks_range_20 <- cut(county_shp$range_acres_20,
+                                       breaks=c(-1, 50000, 100000, 200000, 400000, 600000, 1600000),
+                                       labels=c("0 - 50", "51 - 100", "101 - 200",
+                                                "201 - 400", "401 - 600", "601 - 1600"))
+county_shp$brks_total_20 <- cut(county_shp$total_acres_20,
+                                       breaks=c(-1, 50000, 100000, 200000, 400000, 600000, 1600000),
+                                       labels=c("0 - 50", "51 - 100", "101 - 200", 
+                                                "201 - 400", "401 - 600", "601 - 1600"))
+county_shp$brks_range_50 <- cut(county_shp$range_acres_50,
+                                       breaks=c(-1, 50000, 100000, 200000, 400000, 600000, 1600000),
+                                       labels=c("0 - 50", "51 - 100", "101 - 200",
+                                                "201 - 400", "401 - 600", "601 - 1600"))
+county_shp$brks_total_50 <- cut(county_shp$total_acres_50,
+                                       breaks=c(-1, 50000, 100000, 200000, 400000, 600000, 1600000),
+                                       labels=c("0 - 50", "51 - 100", "101 - 200", 
+                                                "201 - 400", "401 - 600", "601 - 1600"))
+
+# generate maps
+county_map_a <- ggplot() +
+  geom_sf(data=county_shp,aes(fill=brks_range_12), color="#7f7f7f") +
   theme_bw() +
+  scale_fill_manual(na.value="white", 
+                    labels = c("0 - 50", "51 - 100", "101 - 200",
+                               "201 - 400",
+                               "No data"),
+                    values = c("#fff7bc","#f5bc7c","#eca05f","#e1803e"),
+                    name = "Rangeland acres (1,000s) newly forested")+
   theme(plot.background = element_rect(fill = "transparent",color = NA),
         panel.border = element_blank(),
         panel.background =element_rect(fill = "transparent",color = NA),
@@ -186,9 +224,41 @@ county_map <- ggplot(forest_conversion) +
         axis.text = element_blank(),
         axis.ticks = element_blank(),
         legend.position="right")
-county_map
+ggsave("county_map_a.tiff",width=14.1,height=7.25)
 
+county_map_b <- ggplot() +
+  geom_sf(data=county_shp,aes(fill=brks_range_20), color="#7f7f7f") +
+  theme_bw() +
+  scale_fill_manual(na.value="white", 
+                    labels = c("0 - 50", "51 - 100", "101 - 200",
+                               "201 - 400",
+                               "No data"),
+                    values = c("#fff7bc","#f5bc7c","#eca05f","#e1803e"),
+                    name = "Rangeland acres (1,000s) newly forested")+
+  theme(plot.background = element_rect(fill = "transparent",color = NA),
+        panel.border = element_blank(),
+        panel.background =element_rect(fill = "transparent",color = NA),
+        panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position="right")
+ggsave("county_map_b.tiff",width=14.1,height=7.25)
 
-
-
+county_map_c <- ggplot() +
+  geom_sf(data=county_shp,aes(fill=brks_range_50), color="#7f7f7f") +
+  theme_bw() +
+  scale_fill_manual(na.value="white", 
+                    labels = c("0 - 50", "51 - 100", "101 - 200",
+                               "201 - 400", "401 - 600", "601 - 1600",
+                               "No data"),
+                    values = c("#fff7bc","#f5bc7c","#eca05f","#e1803e","#d4611d","#cc4c02"),
+                    name = "Rangeland acres (1,000s) newly forested")+
+  theme(plot.background = element_rect(fill = "transparent",color = NA),
+        panel.border = element_blank(),
+        panel.background =element_rect(fill = "transparent",color = NA),
+        panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position="right")
+ggsave("county_map_c.tiff",width=14.1,height=7.25)
 
