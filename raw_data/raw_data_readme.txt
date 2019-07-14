@@ -1,0 +1,1 @@
+The file "generate_maps.R" downloads data that populate into the raw_data directory.

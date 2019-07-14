@@ -1,0 +1,1 @@
+The file "generate_maps.R" will download the relevant data to the directory "raw_data" and generate the maps used in Birge et al. 
