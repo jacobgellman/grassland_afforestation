@@ -152,6 +152,18 @@ forest_conversion <- forest_conversion %>%
     total_acres_50 = rowSums(cbind(crop_acres_50,pasture_acres_50,range_acres_50),na.rm=TRUE)
   )
 
+# a subset of plains states
+forest_conversion_plains <- forest_conversion %>%
+  mutate(state_code=NA)
+for (i in 1:length(forest_conversion_plains$county)) {
+  forest_conversion_plains$state_code[i] <- 
+    str_sub(forest_conversion_plains$county[i],-2,-1)
+}
+forest_conversion_plains <- forest_conversion_plains %>%
+  filter(state_code %in% c("MT","WY","ND","SD",
+                           "NE","KS","OK","TX"))
+sum(forest_conversion_plains$range_acres_50,na.rm=T)
+
 ###################################################################################################
 #
 # Map
