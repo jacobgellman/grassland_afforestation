@@ -273,18 +273,3 @@ county_map_c <- ggplot() +
         axis.ticks = element_blank(),
         legend.position="right")
 ggsave("county_map_c.tiff",width=14.1,height=7.25)
-
-
-# here is a test comment by flavio
-
-
-
-
-
-
-
-
-
-
-
-
